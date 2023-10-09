@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { AppwriteException } from 'appwrite';
+import { useLocation } from 'wouter';
 
 import Layout from '@/components/Layout';
 import Container from '@/components/Container';
@@ -9,9 +11,36 @@ import InputDate from '@/components/InputDate';
 import InputFile from '@/components/InputFile';
 import Button from '@/components/Button';
 
+import { createEvent } from '@/lib/events';
+import { uploadFile } from '@/lib/storage';
+
+interface LiveBeatImage {
+  height: number;
+  width: number;
+  file: File;
+}
 
 function EventNew() {
-  const [error] = useState<string>();
+  const [, navigate] = useLocation()
+  const [error, setError] = useState<string>();
+  const [image, setImage] = useState<LiveBeatImage>()
+
+  function handleOnChange(event: React.FormEvent<HTMLInputElement>) {
+    const target = event.target as HTMLInputElement & {
+      files: FileList
+    }
+    const img = new Image()
+
+    img.onload = function() {
+      setImage({
+        height: img.height,
+        file: target.files[0],
+        width: img.width
+      })
+    }
+
+    img.src = URL.createObjectURL(target.files[0])
+  }
 
   /**
    * handleOnSubmit
@@ -19,6 +48,39 @@ function EventNew() {
 
   async function handleOnSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
+
+    try {
+      const target = e.target as typeof e.target & {
+        name: {value:string}
+        location: {value:string}
+        date:{value:string}
+      }
+
+      let file;
+
+      if (image?.file) {
+        file = await uploadFile(image.file)
+      }
+
+      const results = await createEvent({
+        name: target.name.value,
+        location: target.location.value,
+        date: new Date(target.date.value).toISOString(),
+        imageHeight: image?.height,
+        imageFileId: file?.$id,
+        imageWidth: image?.width,
+      })
+      navigate(`/event/${results.event.$id}`)
+
+    } catch (error: unknown) {
+      if (error instanceof AppwriteException) {
+        if (error.type === 'user_unauthorized') {
+          setError('You must be logged in to submit a new event.')
+        }
+      }
+      console.log(error)
+    }
+
   }
 
   return (
@@ -39,7 +101,7 @@ function EventNew() {
             event gain momentum like never before on LiveBeat.
           </p>
         </div>
-      
+
         <form className="border border-slate-200 dark:border-slate-500 rounded p-6" onSubmit={handleOnSubmit}>
           <FormRow className="mb-5">
             <FormLabel htmlFor="name">Event Name</FormLabel>
@@ -50,7 +112,7 @@ function EventNew() {
             <FormLabel htmlFor="date">Event Date</FormLabel>
             <InputDate id="date" name="date" type="datetime-local" required />
           </FormRow>
-          
+
           <FormRow className="mb-5">
             <FormLabel htmlFor="location">Event Location</FormLabel>
             <InputText id="location" name="location" type="text" required />
@@ -58,7 +120,7 @@ function EventNew() {
 
           <FormRow className="mb-6">
             <FormLabel htmlFor="image">File</FormLabel>
-            <InputFile id="image" name="image" />
+            <InputFile id="image" name="image" onChange={handleOnChange} />
             <p className="text-sm mt-2">Accepted File Types: jpg, png</p>
           </FormRow>
 
